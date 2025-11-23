@@ -1,4 +1,6 @@
-### scbidi - **s**ingle-**c**ell **bi**directional **di**stributional association testing
+### scbidi
+
+(**s**ingle-**c**ell **bi**directional **di**stributional association testing)
 
 This is a lightweight Python toolkit for bidirectional distributional association testing between gene pairs in single-cell RNA-seq data.
 
