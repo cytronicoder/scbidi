@@ -1,5 +1,5 @@
 """
-Unified simulation and analysis runner for scbidi.
+Unified simulation and analysis runner.
 
 This script performs three main tasks:
 1. Runs example simulations for all scenarios and prints summary statistics.
@@ -253,7 +253,6 @@ def plot_fig3_benchmark(df: pd.DataFrame) -> None:
     g.savefig(os.path.join(OUTPUT_DIR, "fig3a_dist_D.png"))
     plt.close()
 
-    pvals = np.concatenate([df["p_A_given_B"].values, df["p_B_given_A"].values])
     df["reject_A_given_B"] = multipletests(
         df["p_A_given_B"], alpha=0.05, method="fdr_bh"
     )[0]

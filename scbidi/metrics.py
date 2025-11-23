@@ -120,7 +120,7 @@ def compute_two_part_distance(
 
     The distance combines:
       (i) a difference in the fraction of zero-expression cells, and
-      (ii) a Kolmogorov–Smirnov distance on the non-zero values.
+      (ii) a Kolmogorov-Smirnov distance on the non-zero values.
 
     D = w0 * |Δ zero_fraction| + (1 - w0) * KS(nonzero)
 
