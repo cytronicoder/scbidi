@@ -26,7 +26,7 @@ where:
 
 **Example:**
 
-```
+```text
 Gene A in B-high cells: [0, 0, 0, 2.3, 4.1, 5.2]  → zero fraction = 50%
 Gene A in B-low cells:  [0, 1.1, 2.2, 3.1, 4.0]   → zero fraction = 20%
 
@@ -77,7 +77,7 @@ We then use permutation tests instead of parametric tests (e.g., t-test, Wilcoxo
 
 **Observed data:**
 
-```
+```text
 B-high cells: indices [10, 23, 45, ...]  → observe D_A|B = 0.42
 B-low cells:  indices [1, 5, 12, ...]
 ```
@@ -91,7 +91,7 @@ B-low cells:  indices [1, 5, 12, ...]
 **p-value calculation:**
 
 $$
-p = \frac{1 + \#\{D^{\text{perm}} \geq D^{\text{obs}}\}}{1 + n_{\text{permutations}}}
+p = \frac{1 + \text{number of permutations where } D^{\text{perm}} \geq D^{\text{obs}}}{1 + n_{\text{permutations}}}
 $$
 
 Adding 1 to numerator and denominator ensures p > 0 (conservative adjustment).

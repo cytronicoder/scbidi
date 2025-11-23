@@ -94,7 +94,7 @@ print(df[["cluster", "D_A_given_B", "p_A_given_B",
 
 **Output:**
 
-```
+```text
    cluster  D_A_given_B  p_A_given_B  D_B_given_A  p_B_given_A  asymmetry
 0        0        0.034        0.634        0.029        0.711      0.005
 ```
