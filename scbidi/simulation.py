@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple, Any
+from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
+import pandas as pd
+
 from .metrics import bidirectional_association
 
 
@@ -182,39 +184,59 @@ def simulate_scenarios(
     config: Optional[SimulationConfig] = None,
     random_state: Optional[int] = None,
     **kwargs,
-) -> List[Dict[str, Any]]:
-    """Run repeated simulations and analysis for a scenario."""
+) -> pd.DataFrame:
+    """
+    Run repeated simulations and analysis for a scenario.
+
+    Returns a pandas DataFrame with one row per replicate, containing:
+      - replicate: int
+      - scenario: str
+      - correlation: float
+      - d_zero_a_b, d_cont_a_b: float (from A->B)
+      - d_zero_b_a, d_cont_b_a: float (from B->A)
+      - p_value_a_b, p_value_b_a: float
+      - summary: str
+    """
     config = config or SimulationConfig()
     rng = np.random.default_rng(random_state)
-    results: List[Dict[str, Any]] = []
+
+    rows = []
 
     for rep in range(n_replicates):
         expr_a, expr_b = generate_association_scenarios(
-            scenario, config=config, random_state=rng.integers(0, 1e9)
+            scenario, config=config, random_state=rng.integers(0, 10**9)
         )
 
         corr = np.corrcoef(expr_a, expr_b)[0, 1]
 
         clusters = np.zeros_like(expr_a, dtype=int)
+
         associations = bidirectional_association(
             expr_a,
             expr_b,
             clusters=clusters,
             **kwargs,
-            random_state=rng.integers(0, 1e9),
+            random_state=rng.integers(0, 10**9),
         )
 
-        results.append(
-            {
-                "replicate": rep,
-                "scenario": scenario,
-                "expression_a": expr_a,
-                "expression_b": expr_b,
-                "correlation": corr,
-                "associations": associations,
-            }
-        )
-    return results
+        res = associations[0]
+
+        row = {
+            "replicate": rep,
+            "scenario": scenario,
+            "correlation": corr,
+            "d_total_a_b": res.D_A_given_B,
+            "d_zero_a_b": res.D_A_given_B_zero,
+            "d_cont_a_b": res.D_A_given_B_cont,
+            "p_value_a_b": res.p_A_given_B,
+            "d_total_b_a": res.D_B_given_A,
+            "d_zero_b_a": res.D_B_given_A_zero,
+            "d_cont_b_a": res.D_B_given_A_cont,
+            "p_value_b_a": res.p_B_given_A,
+        }
+        rows.append(row)
+
+    return pd.DataFrame(rows)
 
 
 def run_parameter_sweep(
@@ -224,24 +246,26 @@ def run_parameter_sweep(
     n_replicates: int = 20,
     base_config: Optional[SimulationConfig] = None,
     **kwargs,
-) -> List[Dict[str, Any]]:
+) -> pd.DataFrame:
     """Run simulations sweeping a parameter (e.g. gamma)."""
     base_config = base_config or SimulationConfig()
-    all_results = []
+    all_dfs = []
 
     for val in param_values:
         current_config = SimulationConfig(**base_config.__dict__)
         setattr(current_config, param_name, val)
 
-        res = simulate_scenarios(
+        df = simulate_scenarios(
             scenario, n_replicates=n_replicates, config=current_config, **kwargs
         )
-        for r in res:
-            r["param_name"] = param_name
-            r["param_value"] = val
-        all_results.extend(res)
+        df["param_name"] = param_name
+        df["param_value"] = val
+        all_dfs.append(df)
 
-    return all_results
+    if not all_dfs:
+        return pd.DataFrame()
+
+    return pd.concat(all_dfs, ignore_index=True)
 
 
 def sigmoid(x):

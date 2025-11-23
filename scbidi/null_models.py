@@ -38,15 +38,11 @@ def build_local_groups(
 
     k = max(1, n_cells // n_neighbors)
 
-    seed = int(rng.integers(0, 2**31 - 1))
-    prev_state = np.random.get_state()
-    np.random.seed(seed)
-    try:
-        _, group_ids = kmeans2(embedding, k, minit="points")
-    finally:
-        np.random.set_state(prev_state)
+    init_idx = rng.choice(n_cells, size=k, replace=False)
+    init_centers = embedding[init_idx]
 
-    return group_ids
+    _, group_ids = kmeans2(embedding, init_centers, minit="matrix")
+    return group_ids.astype(int)
 
 
 def permute_indices_locally(

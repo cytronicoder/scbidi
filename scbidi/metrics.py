@@ -10,7 +10,22 @@ import pandas as pd
 from statsmodels.stats.multitest import multipletests
 
 from .utils import ThresholdResult, threshold_high_low, validate_inputs
-from .null_models import build_local_groups, permute_indices_locally, global_permutation
+from .null_models import build_local_groups, permute_indices_locally
+
+
+@dataclass
+class TwoPartDistance:
+    """
+    Distance components between two distributions.
+
+    d_zero: Difference in fraction of zeros (binary on/off).
+    d_continuous: KS distance between non-zero values.
+    total: Weighted combination of d_zero and d_continuous.
+    """
+
+    d_zero: float
+    d_continuous: float
+    total: float
 
 
 @dataclass
@@ -34,14 +49,20 @@ class PairwiseAssociationResult:
         Number of B-high cells used in A|B test.
 
     D_A_given_B : Optional[float]
-        Two-part distance for "A when B is high versus B is low".
-        Values near 0 mean A looks similar in B-high and B-low cells;
-        values near 1 mean A looks very different.
+        Total two-part distance for "A when B is high versus B is low".
+    D_A_given_B_zero : Optional[float]
+        Difference in zero-fraction of A between B-high and B-low.
+    D_A_given_B_cont : Optional[float]
+        KS distance of non-zero A values between B-high and B-low.
     p_A_given_B : Optional[float]
         Permutation p-value for D_A_given_B.
 
     D_B_given_A : Optional[float]
-        Two-part distance for "B when A is high versus A is low".
+        Total two-part distance for "B when A is high versus A is low".
+    D_B_given_A_zero : Optional[float]
+        Difference in zero-fraction of B between A-high and A-low.
+    D_B_given_A_cont : Optional[float]
+        KS distance of non-zero B values between A-high and A-low.
     p_B_given_A : Optional[float]
         Permutation p-value for D_B_given_A.
 
@@ -62,8 +83,12 @@ class PairwiseAssociationResult:
     n_high_a: int
     n_high_b: int
     D_A_given_B: Optional[float]
+    D_A_given_B_zero: Optional[float]
+    D_A_given_B_cont: Optional[float]
     p_A_given_B: Optional[float]
     D_B_given_A: Optional[float]
+    D_B_given_A_zero: Optional[float]
+    D_B_given_A_cont: Optional[float]
     p_B_given_A: Optional[float]
     asymmetry: Optional[float]
     p_asymmetry: Optional[float]
@@ -89,7 +114,7 @@ def compute_two_part_distance(
     high_labels: Sequence[int],
     weight_zero: float = 0.5,
     min_nonzero: int = 10,
-) -> float:
+) -> TwoPartDistance:
     """
     Quantify how differently a gene is expressed in 'high' versus 'low' cells.
 
@@ -115,9 +140,8 @@ def compute_two_part_distance(
 
     Returns
     -------
-    float
-        Distance in [0, 1]. 0 means 'indistinguishable distributions',
-        values closer to 1 indicate stronger differences.
+    TwoPartDistance
+        Object containing d_zero, d_continuous, and total distance.
     """
     values = np.asarray(expression, dtype=float)
     labels = np.asarray(high_labels, dtype=int)
@@ -128,7 +152,7 @@ def compute_two_part_distance(
     fg_mask = labels == 1
     bg_mask = labels == 0
     if fg_mask.sum() == 0 or bg_mask.sum() == 0:
-        return 0.0
+        return TwoPartDistance(0.0, 0.0, 0.0)
 
     fg_values = values[fg_mask]
     bg_values = values[bg_mask]
@@ -146,7 +170,8 @@ def compute_two_part_distance(
         d_cont = 0.0
 
     w0 = float(np.clip(weight_zero, 0.0, 1.0))
-    return w0 * d_zero + (1.0 - w0) * d_cont
+    total = w0 * d_zero + (1.0 - w0) * d_cont
+    return TwoPartDistance(d_zero, d_cont, total)
 
 
 def compute_Ds_for_thresholds(
@@ -156,7 +181,7 @@ def compute_Ds_for_thresholds(
     thres_b: ThresholdResult,
     weight_zero: float,
     min_nonzero: int,
-) -> Tuple[float, float, float]:
+) -> Tuple[TwoPartDistance, TwoPartDistance, float]:
     """Compute D_A|B, D_B|A, and S for given thresholds."""
     d_ab = compute_two_part_distance(
         cluster_a, thres_b.labels, weight_zero, min_nonzero
@@ -164,8 +189,14 @@ def compute_Ds_for_thresholds(
     d_ba = compute_two_part_distance(
         cluster_b, thres_a.labels, weight_zero, min_nonzero
     )
-    s = d_ab - d_ba
+    s = d_ab.total - d_ba.total
     return d_ab, d_ba, s
+
+
+def _permute_labels(labels: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Return a permuted copy of binary labels."""
+    perm = rng.permutation(labels.shape[0])
+    return labels[perm]
 
 
 def _directional_single_cluster(
@@ -200,8 +231,12 @@ def _directional_single_cluster(
             n_high_a=thres_a.n_high,
             n_high_b=thres_b.n_high,
             D_A_given_B=None,
+            D_A_given_B_zero=None,
+            D_A_given_B_cont=None,
             p_A_given_B=None,
             D_B_given_A=None,
+            D_B_given_A_zero=None,
+            D_B_given_A_cont=None,
             p_B_given_A=None,
             asymmetry=None,
             p_asymmetry=None,
@@ -221,26 +256,25 @@ def _directional_single_cluster(
     for _ in range(n_permutations):
         if local_groups is not None:
             perm_idx = permute_indices_locally(indices, local_groups, rng)
+            perm_labels_b = thres_b.labels[perm_idx]
+            perm_labels_a = thres_a.labels[perm_idx]
         else:
-            perm_idx = global_permutation(indices, rng)
-
-        perm_a = cluster_a[perm_idx]
-
-        perm_labels_a = thres_a.labels[perm_idx]
+            perm_labels_b = _permute_labels(thres_b.labels, rng)
+            perm_labels_a = _permute_labels(thres_a.labels, rng)
 
         perm_d_ab = compute_two_part_distance(
-            perm_a, thres_b.labels, weight_zero, min_nonzero
+            cluster_a, perm_labels_b, weight_zero, min_nonzero
         )
 
         perm_d_ba = compute_two_part_distance(
             cluster_b, perm_labels_a, weight_zero, min_nonzero
         )
 
-        perm_s = perm_d_ab - perm_d_ba
+        perm_s = perm_d_ab.total - perm_d_ba.total
 
-        if perm_d_ab >= obs_d_ab:
+        if perm_d_ab.total >= obs_d_ab.total:
             exceed_ab += 1
-        if perm_d_ba >= obs_d_ba:
+        if perm_d_ba.total >= obs_d_ba.total:
             exceed_ba += 1
         if abs(perm_s) >= abs(obs_s):
             exceed_s_abs += 1
@@ -254,9 +288,13 @@ def _directional_single_cluster(
         n_cells=idx.size,
         n_high_a=thres_a.n_high,
         n_high_b=thres_b.n_high,
-        D_A_given_B=obs_d_ab,
+        D_A_given_B=obs_d_ab.total,
+        D_A_given_B_zero=obs_d_ab.d_zero,
+        D_A_given_B_cont=obs_d_ab.d_continuous,
         p_A_given_B=p_ab,
-        D_B_given_A=obs_d_ba,
+        D_B_given_A=obs_d_ba.total,
+        D_B_given_A_zero=obs_d_ba.d_zero,
+        D_B_given_A_cont=obs_d_ba.d_continuous,
         p_B_given_A=p_ba,
         asymmetry=obs_s,
         p_asymmetry=p_s,
@@ -340,6 +378,20 @@ def bidirectional_association(
     return results
 
 
+def _qualitative_strength(D: float, p: Optional[float]) -> str:
+    if D is None or p is None:
+        return "not tested"
+    if p >= 0.05:
+        return "no statistically clear difference"
+    if D < 0.1:
+        return "very small but statistically detectable difference"
+    if D < 0.25:
+        return "weak but statistically clear difference"
+    if D < 0.5:
+        return "moderate difference"
+    return "strong difference"
+
+
 def summarize_gene_pair(
     expr_a: Sequence[float],
     expr_b: Sequence[float],
@@ -404,20 +456,15 @@ def summarize_gene_pair(
         if res.D_A_given_B is None:
             interp = f"Cluster {res.cluster}: not enough cells or high-expressing cells to analyze."
         else:
+            strength_ab = _qualitative_strength(res.D_A_given_B, res.p_A_given_B)
+            strength_ba = _qualitative_strength(res.D_B_given_A, res.p_B_given_A)
 
-            def strength(D):
-                if D < 0.1:
-                    return "no clear difference"
-                if D < 0.25:
-                    return "weak difference"
-                if D < 0.5:
-                    return "moderate difference"
-                return "strong difference"
-
-            msg_ab = f"{gene_a_name} is {strength(res.D_A_given_B)} when {gene_b_name} is high vs low"
-            msg_ba = f"{gene_b_name} is {strength(res.D_B_given_A)} when {gene_a_name} is high vs low"
-
-            interp = f"{msg_ab}; {msg_ba}. This pattern reflects association only, not causation."
+            interp = (
+                f"In cluster {res.cluster}, {gene_a_name} shows {strength_ab} "
+                f"between {gene_b_name}-high and -low cells, and {gene_b_name} shows "
+                f"{strength_ba} between {gene_a_name}-high and -low cells. "
+                "These reflect association patterns only; they do NOT prove one gene regulates the other."
+            )
 
         rows.append(
             {
@@ -426,8 +473,12 @@ def summarize_gene_pair(
                 "n_high_A": res.n_high_a,
                 "n_high_B": res.n_high_b,
                 "D_A_given_B": res.D_A_given_B,
+                "D_A_given_B_zero": res.D_A_given_B_zero,
+                "D_A_given_B_cont": res.D_A_given_B_cont,
                 "p_A_given_B": res.p_A_given_B,
                 "D_B_given_A": res.D_B_given_A,
+                "D_B_given_A_zero": res.D_B_given_A_zero,
+                "D_B_given_A_cont": res.D_B_given_A_cont,
                 "p_B_given_A": res.p_B_given_A,
                 "asymmetry": res.asymmetry,
                 "p_asymmetry": res.p_asymmetry,

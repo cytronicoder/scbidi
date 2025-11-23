@@ -43,15 +43,12 @@ plt.rcParams["figure.dpi"] = 300
 plt.rcParams["savefig.bbox"] = "tight"
 
 
-def summarise_result(record: Dict[str, object]) -> str:
-    """Format a single simulation result record as a string."""
-    association = record["associations"][0]
-    corr = record.get("correlation", float("nan"))
+def summarise_result(row: pd.Series) -> str:
+    """Format a single simulation result row as a string."""
     return (
-        f"rep {record['replicate']:02d} | Corr={corr:.3f} | "
-        f"D_A|B={association.D_A_given_B:.3f} p={association.p_A_given_B:.3f} | "
-        f"D_B|A={association.D_B_given_A:.3f} p={association.p_B_given_A:.3f} | "
-        f"S={association.asymmetry:.3f}"
+        f"rep {int(row['replicate']):02d} | Corr={row['correlation']:.3f} | "
+        f"D_A|B={row['d_total_a_b']:.3f} p={row['p_value_a_b']:.3f} | "
+        f"D_B|A={row['d_total_b_a']:.3f} p={row['p_value_b_a']:.3f}"
     )
 
 
@@ -137,8 +134,12 @@ def run_benchmark(
                 "scenario": scenario,
                 "replicate": i,
                 "D_A_given_B": res.D_A_given_B,
+                "D_A_given_B_zero": res.D_A_given_B_zero,
+                "D_A_given_B_cont": res.D_A_given_B_cont,
                 "p_A_given_B": res.p_A_given_B,
                 "D_B_given_A": res.D_B_given_A,
+                "D_B_given_A_zero": res.D_B_given_A_zero,
+                "D_B_given_A_cont": res.D_B_given_A_cont,
                 "p_B_given_A": res.p_B_given_A,
                 "asymmetry": res.asymmetry,
                 "p_asymmetry": res.p_asymmetry,
@@ -456,7 +457,7 @@ def main() -> None:
             min_high=30,
             weight_zero=0.5,
         )
-        for record in results:
+        for _, record in results.iterrows():
             print(summarise_result(record))
 
     print("\n=== 2. Running Benchmark (this may take a moment) ===")
